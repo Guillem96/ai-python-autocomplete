@@ -1,0 +1,13 @@
+# Python files
+*.pyc
+__pycache__/
+
+# VIM & Visual code
+*.swp
+*.vscode/
+
+# Environment Variables
+.env
+
+# Data files
+data/
