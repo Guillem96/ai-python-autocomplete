@@ -1,4 +1,5 @@
 import os
+import random
 from pathlib import Path
 
 import click
@@ -6,10 +7,14 @@ import requests
 
 
 def _rec_github_objects(language, branch=None):
+    """
+    Creates a query to retrieve blobs and trees from a search filtered by 
+    a programming language
+    """
     oid = 'null' if branch is None else f'"{branch}"'
     query = '''
     query {{
-      search(first: 5, type: REPOSITORY, query: "stars:>1000 language:{language}") {{
+      search(first: 50, type: REPOSITORY, query: "tensorflow stars:>1000 language:{language}") {{
         edges {{
           node {{
             ... on Repository {{
@@ -43,13 +48,24 @@ def _rec_github_objects(language, branch=None):
 
 
 def _invoke_graphql_query(user, token, query):
+    """
+    Call the github graphql api with the given query.
+    """
     base_url = 'https://api.github.com/graphql'
     auth = requests.auth.HTTPBasicAuth(user, token)
     response = requests.post(base_url, auth=auth, json={'query': query})
+    if response.status_code >= 300:
+        print(response.json())
+        raise Exception("Invalid request")
+
     return response.json()['data']['search']['edges']
 
 
-def _fetch_blobs(repositories, user, token, language, depth=1):
+def _fetch_blobs(repositories, user, token, language, depth=5):
+    """
+    Retrieves all blobs from a starting set of repositories. This function is
+    able to go down in the repository tree by `depth` levels.
+    """
     trees = []
     blobs = []
 
@@ -63,9 +79,12 @@ def _fetch_blobs(repositories, user, token, language, depth=1):
                           for o in r['object']['entries'] 
                           if o['type'] == 'blob' and o['name'].endswith('.py')]
                 trees += [o for o in r['object']['entries'] 
-                      if o['type'] == 'tree']
+                          if o['type'] == 'tree']
             else:
                 none_found += 1
+
+        random.shuffle(trees)
+        trees = trees[:30]
 
         print(f'Found {none_found} None objects out of {len(repositories)}')
         print(f'Obtaining new trees based on {len(trees)} parents...')
@@ -84,6 +103,10 @@ def _fetch_blobs(repositories, user, token, language, depth=1):
 
 
 def _env(key):
+    """
+    Returns a function that retrieve an environment variable
+    with the given key.
+    """
     def f():
         return os.environ.get(key, '')
     return f
@@ -105,7 +128,7 @@ def download(user, token, output, language):
     blobs = _fetch_blobs(repositories, user, token, language)
 
     for b in blobs:
-        fname = f'{b[0]}_{b[1]}_{b[2]["name"]}]'
+        fname = f'{b[0]}_{b[1]}_{b[2]["name"]}'
         with (output / fname).open('w') as f:
             f.write(b[2]["object"]["text"])
 

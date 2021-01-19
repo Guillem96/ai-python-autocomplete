@@ -11,3 +11,6 @@ __pycache__/
 
 # Data files
 /data/
+
+# Trained models and tokenizers
+/models/
