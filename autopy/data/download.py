@@ -6,7 +6,7 @@ import click
 import requests
 
 
-def _rec_github_objects(language, branch=None):
+def _rec_github_objects(search_query, branch=None):
     """
     Creates a query to retrieve blobs and trees from a search filtered by 
     a programming language
@@ -14,7 +14,7 @@ def _rec_github_objects(language, branch=None):
     oid = 'null' if branch is None else f'"{branch}"'
     query = '''
     query {{
-      search(first: 50, type: REPOSITORY, query: "tensorflow stars:>1000 language:{language}") {{
+      search(first: 50, type: REPOSITORY, query: "{search_query} stars:>1000 language:Python") {{
         edges {{
           node {{
             ... on Repository {{
@@ -44,7 +44,7 @@ def _rec_github_objects(language, branch=None):
       }}
     }}
     '''
-    return query.format(language=language, oid=oid)
+    return query.format(search_query=search_query, oid=oid)
 
 
 def _invoke_graphql_query(user, token, query):
@@ -61,7 +61,7 @@ def _invoke_graphql_query(user, token, query):
     return response.json()['data']['search']['edges']
 
 
-def _fetch_blobs(repositories, user, token, language, depth=5):
+def _fetch_blobs(repositories, user, token, search_query, depth=5):
     """
     Retrieves all blobs from a starting set of repositories. This function is
     able to go down in the repository tree by `depth` levels.
@@ -91,8 +91,9 @@ def _fetch_blobs(repositories, user, token, language, depth=5):
         new_repositories = [_invoke_graphql_query(
                                 user=user, 
                                 token=token, 
-                                query=_rec_github_objects(language=language, 
-                                                          branch=o['oid']))
+                                query=_rec_github_objects(
+                                    search_query=search_query, 
+                                    branch=o['oid']))
                             for o in trees]
 
         repositories = [r for rl in new_repositories for r in rl]
@@ -118,14 +119,14 @@ def _env(key):
 @click.option('--token', default=_env('GITHUB_TOKEN'), 
               help='Token credential associated with user')
 @click.option('-o', '--output', required=True)
-@click.option('--language', default='python')
-def download(user, token, output, language):
+@click.option('-q', '--search-query', default='')
+def download(user, token, output, search_query):
     output = Path(output)
     output.mkdir(exist_ok=True, parents=True)
 
-    query = _rec_github_objects(language)
+    query = _rec_github_objects(search_query)
     repositories = _invoke_graphql_query(user, token, query)
-    blobs = _fetch_blobs(repositories, user, token, language)
+    blobs = _fetch_blobs(repositories, user, token, search_query)
 
     for b in blobs:
         fname = f'{b[0]}_{b[1]}_{b[2]["name"]}'
@@ -135,3 +136,4 @@ def download(user, token, output, language):
 
 if __name__ == '__main__':
     download()
+
