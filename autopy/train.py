@@ -37,7 +37,7 @@ def train(dataset, tokenizer,
 
     ds = autopy.data.CodeCompletionDataset(dataset, tokenizer)
     train_ds_len = int(len(ds) * .8)
-    idx = torch.randperm(len(dataset))
+    idx = torch.randperm(len(ds))
 
     train_ds = torch.utils.data.Subset(ds, idx[:train_ds_len])
     valid_ds = torch.utils.data.Subset(ds, idx[train_ds_len:])
@@ -53,9 +53,11 @@ def train(dataset, tokenizer,
                                            shuffle=False, collate_fn=collate_fn)
 
     model = autopy.models.LSTMBased(tokenizer)
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print('Model with', n_params, 'parameters')
+
     optimizer = torch.optim.AdamW(model.parameters(), 
-                                  learning_rate, 
-                                  weight_decay=1e-3)
+                                  learning_rate, weight_decay=1e-3)
 
     criterion_fn = torch.nn.CrossEntropyLoss(
         ignore_index=tokenizer.token_to_id('<pad>'))
@@ -64,7 +66,6 @@ def train(dataset, tokenizer,
         autopy.engine.train_one_epoch(model=model, 
                                       optimizer=optimizer, 
                                       data_loader=train_dl, 
-                                      criterion_fn=criterion_fn,
                                       epoch=epoch,
                                       device=device)
 

@@ -46,9 +46,10 @@ class LSTMBased(nn.Module):
     def __init__(self, 
                  tokenizer, 
                  embedding_dim=256,
-                 encoder_hidden_size=512,
+                 encoder_hidden_size=256,
                  decoder_hidden_size=512,
-                 max_decoder_timesteps=512):
+                 max_decoder_timesteps=512,
+                 decoder_strategy='greedy'):
 
         super(LSTMBased, self).__init__()
         vocab_size = tokenizer.get_vocab_size()
@@ -57,6 +58,13 @@ class LSTMBased(nn.Module):
         self.tokenizer = tokenizer
         self.embedding_dim = embedding_dim
         self.max_decoder_timesteps = max_decoder_timesteps
+        self.criterion_fn = nn.CrossEntropyLoss(ignore_index=pad_idx, 
+                                                reduction='none')
+        self.decoder_strategy = decoder_strategy
+
+        if self.decoder_strategy not in {'greedy'}:
+            raise ValueError(f'No valid decoder_strategy '
+                             f'{self.decoder_strategy}')
 
         # Encoder
         self.embeddings = nn.Embedding(num_embeddings=vocab_size,
@@ -65,11 +73,11 @@ class LSTMBased(nn.Module):
 
         self.encoder = nn.LSTM(embedding_dim, 
                                encoder_hidden_size,
-                               num_layers=2, batch_first=True,
+                               num_layers=1, batch_first=True,
                                bidirectional=True)
 
         # Decoder
-        self.decoder_hidden_size = decoder_hidden_size * 2
+        self.decoder_hidden_size = decoder_hidden_size
         self.decoder_input_size = encoder_hidden_size * 2 + self.embedding_dim
 
         self.decoder_embeddings = nn.Embedding(num_embeddings=vocab_size,
@@ -99,6 +107,12 @@ class LSTMBased(nn.Module):
         decoder_in = self.decoder_embeddings(decoder_in)
         return decoder_in
 
+    def _build_initial_output(self, x):
+        output = torch.as_tensor(self.tokenizer.token_to_id('<cls>'),
+                                 device=x.device)
+        output = output.unsqueeze(0).repeat(x.size(0), 1)
+        return output.int()
+
     def _encoder_forward(self, x):
         x = self.embeddings(x)
         encoder_hidden_state, _ = self.encoder(x)
@@ -114,49 +128,73 @@ class LSTMBased(nn.Module):
         decoder_out, decoder_state = self.decoder(
             decoder_in, (decoder_hs, decoder_cs))
 
-        prediction = self.vocab_linear(decoder_out.squeeze())
+        prediction = self.vocab_linear(decoder_out.squeeze(1))
 
         return prediction, decoder_state
 
-    def forward(self, x, y=None):
+    def _train_forward(self, x, y):
+        y = y[:, :self.max_decoder_timesteps]
 
-        if y is None and self.training:
-            raise ValueError('Target missing when model.training == True')
-        
-        if y is not None:
-            timesteps =  min(self.max_decoder_timesteps, y.size(1))
-        else:
-            timesteps = self.max_decoder_timesteps
+        non_padding_mask = (y != self.tokenizer.token_to_id('<pad>')).float()
+        target_lengths = non_padding_mask.sum(-1)
 
         encoder_hidden_state = self._encoder_forward(x)
 
         # Initialize decoder state
         decoder_in = self._build_initial_decoder_in(x)
-        decoder_hs,  decoder_cs = self._init_decoder_state(x)
+        decoder_state = self._init_decoder_state(x)
+        output = self._build_initial_output(x)
 
-        output = []
+        loss = torch.zeros((x.size(0), 1), device=x.device)
 
-        for t in range(1, timesteps):
+        for t in range(1, min(self.max_decoder_timesteps, y.size(1))):
 
-            prediction, (decoder_hs, decoder_cs) = self._decoder_step(
-                decoder_in, 
-                (decoder_hs, decoder_cs), 
-                encoder_hidden_state)
+            prediction, decoder_state = self._decoder_step(
+                decoder_in, decoder_state, encoder_hidden_state)
 
-            # TODO: Think about the next input when evaluating. Directly feeding the
-            # greedy selected prediction may not be convenient
+            current_loss = self.criterion_fn(prediction, y[:, t]).unsqueeze(-1)
+            loss = torch.cat([loss, current_loss], -1)
 
-            # Select next decoder input
-            # Teacher force if training, prediction when evaluating
-            if not self.training:
-                decoder_in = prediction.argmax(1).view(-1, 1)
-            else:
-                decoder_in = y[:, t].view(-1, 1)
-
+            decoder_in = y[:, t].view(-1, 1)
             decoder_in = self.decoder_embeddings(decoder_in)
-            output.append(prediction)
 
-        return torch.stack(output, 1)
+            output = torch.cat([output, 
+                                prediction.argmax(1).view(-1, 1).int()], 1)
+
+        loss = non_padding_mask * loss
+        loss = loss.sum(-1) / target_lengths
+        return loss.mean(), output
+
+    def _eval_forward(self, x):
+
+        encoder_hidden_state = self._encoder_forward(x)
+
+        # Initialize decoder state
+        decoder_in = self._build_initial_decoder_in(x)
+        decoder_state = self._init_decoder_state(x)
+
+        output = self._build_initial_output(x)
+
+        for t in range(1, self.max_decoder_timesteps):
+
+            prediction, decoder_state = self._decoder_step(
+                decoder_in, decoder_state, encoder_hidden_state)
+
+            decoder_in = prediction.argmax(1).view(-1, 1)
+            decoder_in = self.decoder_embeddings(decoder_in)
+            output = torch.cat([output, 
+                                prediction.argmax(1).view(-1, 1).int()], 1)
+
+        return output
+
+    def forward(self, x, y=None):
+        if y is None and self.training:
+            raise ValueError('Target missing when model.training == True')
+
+        if self.training:
+            return self._train_forward(x, y)
+        else:
+            return self._eval_forward(x)
 
 
 if __name__ == '__main__':
@@ -165,5 +203,6 @@ if __name__ == '__main__':
     y = torch.randint(0, 100, size=(2, 256,))
 
     model = LSTMBased(tokenizer)
-    out = model(x, y)
-    print(out.size())
+    model.train()
+    loss, out = model(x, y)
+    print(loss, out.size(), out.dtype)
