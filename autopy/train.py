@@ -12,10 +12,25 @@ def _collate_fn(batch, pad_id):
     x = [o[0] for o in batch]
     y = [o[1] for o in batch]
 
-    x = torch.nn.utils.rnn.pad_sequence(x, True, pad_id)
-    y = torch.nn.utils.rnn.pad_sequence(x, True, pad_id)
+    x = torch.nn.utils.rnn.pad_sequence(sequences=x, 
+                                        batch_first=True, 
+                                        padding_value=pad_id)
+
+    y = torch.nn.utils.rnn.pad_sequence(sequences=x, 
+                                        batch_first=True, 
+                                        padding_value=pad_id)
 
     return x, y
+
+
+def _checkpoint(fname, model, optimizer, epoch):
+    if '{epoch}' in fname:
+        fname = fname.format(epoch=epoch)
+
+    torch.save({
+        'model': model.state_dict(),
+        'optimizer': optimizer.state_dict()
+    }, fname)
 
 
 @click.command()
@@ -25,8 +40,12 @@ def _collate_fn(batch, pad_id):
 @click.option('--batch-size', type=int, default=64)
 @click.option('--epochs', type=int, default=20)
 @click.option('--learning-rate', type=float, default=1e-3)
+@click.option('--save', type=click.Path(dir_okay=False), 
+              default='models/checkpoint-{epoch}.pt')
+@click.option('--resume', type=click.Path(dir_okay=False), default=None)
 def train(dataset, tokenizer,
-          batch_size, epochs, learning_rate):
+          batch_size, epochs, learning_rate,
+          save, resume):
 
     torch.manual_seed(0)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -53,14 +72,20 @@ def train(dataset, tokenizer,
                                            shuffle=False, collate_fn=collate_fn)
 
     model = autopy.models.LSTMBased(tokenizer)
+    model.to(device)
+
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print('Model with', n_params, 'parameters')
 
-    optimizer = torch.optim.AdamW(model.parameters(), 
-                                  learning_rate, weight_decay=1e-3)
+    optimizer = torch.optim.AdamW(params=model.parameters(),
+                                  lr=learning_rate,
+                                  weight_decay=1e-3)
 
-    criterion_fn = torch.nn.CrossEntropyLoss(
-        ignore_index=tokenizer.token_to_id('<pad>'))
+    if resume is not None:
+        print('Resuming training from:', resume)
+        chkp = torch.load(resume, map_location=device)
+        model.load_state_dict(chkp['model'])
+        optimizer.load_state_dict(chkp['optimizer'])
 
     for epoch in range(epochs):
         autopy.engine.train_one_epoch(model=model, 
@@ -68,6 +93,9 @@ def train(dataset, tokenizer,
                                       data_loader=train_dl, 
                                       epoch=epoch,
                                       device=device)
+
+        print('Checkpointing model and optimizer...')
+        _checkpoint(save, model, optimizer, epoch)
 
 
 if __name__ == '__main__':
