@@ -21,7 +21,7 @@ class CodeCompletionDataset(data.Dataset):
         example = self.examples[idx]
         example = torch.as_tensor(example)
 
-        middle = example.size(0) // 2
+        middle = int(example.size(0) * .75)
 
         context = example[:middle]
         context = torch.cat([context, self.sep_id], 0)
@@ -33,3 +33,26 @@ class CodeCompletionDataset(data.Dataset):
 
     def __len__(self):
         return len(self.examples)
+
+
+def decode_sequence(tokenizer, ids):
+    result = ''
+    decoded = tokenizer.decode(ids)
+
+    for w in decoded.split(' '):
+        if w.startswith('##'):
+            result += w.replace('##', '')
+        else:
+            result += ' ' + w
+
+    return result
+
+if __name__ == '__main__':
+    tokenizer = Tokenizer.from_file('models/tokenizer.json')
+    ds = CodeCompletionDataset('data/train-examples.pkl', tokenizer)
+    idx = random.randint(0, len(ds))
+
+    ctx, target = ds[idx]
+
+    print(decode_sequence(tokenizer, target.tolist()))
+

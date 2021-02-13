@@ -11,14 +11,14 @@ dataset, hence, before start, you have to create a Github API Token from the Dev
 Then run the following command:
 
 ```
-$ python -m autopy downlaod -o data/raw -u GITHUB_USER -t GITHUB_TOKEN -q tensorflow
+$ python -m autopy download -o data/raw -u GITHUB_USER -t GITHUB_TOKEN -q tensorflow
 ```
 
 With the above command, you will download Python files from repositories containing the
 word "tensorflow". Then if you want to get more data you can re-run the command but
-chaning the `-q` argument.
+changing the `-q` argument.
 
-2. **Clean the data**: In this step, we remove the comments and unnecessay trailing spaces.
+2. **Clean the data**: In this step, we remove the comments and unnecessary trailing spaces.
 
 ```
 $ python -m autopy preprocess -i data/raw -o data/preprocessed 
@@ -31,7 +31,7 @@ with white spaces, we pre tokenize it at byte level, thus keeping the white spac
 essential.
 
 ```
-$ python -m autopy train-tokenizer -i data/preprocessed -o models/tokenizer.json
+$ python -m autopy fit-tokenizer -i data/preprocessed -o models/tokenizer.json
 ```
 
 4. Finally, we convert our cleaned dataset to training examples:
@@ -39,7 +39,8 @@ $ python -m autopy train-tokenizer -i data/preprocessed -o models/tokenizer.json
 ```
 $ python -m autopy generate-examples \
     -i data/preprocessed/ \
-    -o data/examples.pkl \
+    --train-output-path data/train-examples.pkl \
+    --test-output-path data/train-examples.pkl \
     -t models/tokenizer.json \ 
-    --sequence-len 1024 # Examples of 1024 tokens
+    --sequence-len 512 # Examples of 1024 tokens
 ```

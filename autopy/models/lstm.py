@@ -132,7 +132,7 @@ class LSTMBased(nn.Module):
 
         return prediction, decoder_state
 
-    def _train_forward(self, x, y):
+    def _forward(self, x, y):
         y = y[:, :self.max_decoder_timesteps]
 
         non_padding_mask = (y != self.tokenizer.token_to_id('<pad>')).float()
@@ -165,7 +165,7 @@ class LSTMBased(nn.Module):
         loss = loss.sum(-1) / target_lengths
         return loss.mean(), output
 
-    def _eval_forward(self, x):
+    def _generate(self, x):
 
         encoder_hidden_state = self._encoder_forward(x)
 
@@ -187,14 +187,11 @@ class LSTMBased(nn.Module):
 
         return output
 
-    def forward(self, x, y=None):
-        if y is None and self.training:
-            raise ValueError('Target missing when model.training == True')
+    def forward(self, x, y):
+        return self._forward(x, y)
 
-        if self.training:
-            return self._train_forward(x, y)
-        else:
-            return self._eval_forward(x)
+    def generate(self, x)
+        return self._generate(x)
 
 
 if __name__ == '__main__':

@@ -114,9 +114,9 @@ def _env(key):
 
 
 @click.command()
-@click.option('--user', default=_env('GITHUB_USER'),
+@click.option('-u', '--user', default=_env('GITHUB_USER'),
               help='GitHub user')
-@click.option('--token', default=_env('GITHUB_TOKEN'), 
+@click.option('-t', '--token', default=_env('GITHUB_TOKEN'), 
               help='Token credential associated with user')
 @click.option('-o', '--output', required=True)
 @click.option('-q', '--search-query', default='')
